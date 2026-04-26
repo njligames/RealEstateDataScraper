@@ -75,83 +75,37 @@ MANIFEST_PATH = os.path.join(DATA_DIR, "download_manifest.json")
 DEFAULT_MAX_AGE_HOURS = 168  # 7 days
 
 # Suffolk County and NY Open Data endpoints
+# ──────────────────────────────────────────────
+# Replace DATA_SOURCES in pipeline.py with this:
+# ──────────────────────────────────────────────
+
 DATA_SOURCES = {
-    "nys_7vem_aaz7": {
+    # ─────────────────────────────────────────
+    # NYS Property Assessment Data from Local Assessment Rolls
+    # Dataset: 7vem-aaz7
+    # Has individual parcel-level data with addresses
+    # Fields: parcel_address_number, parcel_address_street,
+    #         parcel_address_suff, print_key_code,
+    #         assessment_total, full_market_value,
+    #         property_class, primary_owner_first_name, etc.
+    # ─────────────────────────────────────────
+    "nys_assessment": {
         "type": "socrata_api",
         "base_url": "https://data.ny.gov/resource/7vem-aaz7.json",
         "fallback_urls": [],
-        "description": "Property Assessment Data from Local Assessment Rolls",
-        "filename": "nys_7vem_aaz7.json",
+        "description": "NYS Property Assessment Data from Local Assessment Rolls",
+        "filename": "nys_assessment.json",
         "filters": {
-            "county_name": "SUFFOLK",
+            "county_name": "Suffolk",
+            "municipality_name": "Brookhaven",
         },
-        "brookhaven_filter": True,
+        "brookhaven_filter": False,
         "page_size": 50000,
     },
 
-    "nys_ykg4_r7ad": {
-        "type": "socrata_api",
-        "base_url": "https://data.ny.gov/resource/ykg4-r7ad.json",
-        "fallback_urls": [],
-        "description": "Summary of Real Property Tax Exemptions by Code by Municipality: Beginning Roll ",
-        "filename": "nys_ykg4_r7ad.json",
-        "filters": {
-            "county_name": "SUFFOLK",
-        },
-        "brookhaven_filter": True,
-        "page_size": 50000,
-    },
-
-    "nys_bsmp_6um6": {
-        "type": "socrata_api",
-        "base_url": "https://data.ny.gov/resource/bsmp-6um6.json",
-        "fallback_urls": [],
-        "description": "Residential Assessment Ratios:  Beginning Rate Year 1982",
-        "filename": "nys_bsmp_6um6.json",
-        "filters": {
-            "county_name": "SUFFOLK",
-        },
-        "brookhaven_filter": True,
-        "page_size": 50000,
-    },
-
-    "nys_e6pv_77bh": {
-        "type": "socrata_api",
-        "base_url": "https://data.ny.gov/resource/e6pv-77bh.json",
-        "fallback_urls": [],
-        "description": "Equalization Rates:  Beginning Rate Year 1954",
-        "filename": "nys_e6pv_77bh.json",
-        "filters": {
-            "county_name": "SUFFOLK",
-        },
-        "brookhaven_filter": True,
-        "page_size": 50000,
-    },
-
-    "arcgis_ce716a866cc94a0797c9": {
-        "type": "arcgis_api",
-        "base_url": "",
-        "layer_url": "https://services7.arcgis.com/u68hBtg9YrRh9HYX/arcgis/rest/services/opengov_feature_service/FeatureServer/0/query",
-        "fallback_layer_urls": [],
-        "description": "opengov_feature_service",
-        "filename": "arcgis_ce716a866cc94a0797c9.json",
-        "where_clause": "1=1",
-        "fallback_where_clauses": ["1=1"],
-        "page_size": 2000,
-    },
-
-    "arcgis_8af5cef967f8474a9f26": {
-        "type": "arcgis_api",
-        "base_url": "",
-        "layer_url": "https://services6.arcgis.com/EbVsqZ18sv1kVJ3k/arcgis/rest/services/NYS_Tax_Parcels_Public/FeatureServer/0/query",
-        "fallback_layer_urls": [],
-        "description": "NYS Tax Parcels Public",
-        "filename": "arcgis_8af5cef967f8474a9f26.json",
-        "where_clause": "1=1",
-        "fallback_where_clauses": ["1=1"],
-        "page_size": 2000,
-    },
-
+    # ─────────────────────────────────────────
+    # Local CSV fallback
+    # ─────────────────────────────────────────
     "local_csv": {
         "type": "local_csv",
         "path": os.path.join(RAW_DIR, "brookhaven_parcels.csv"),
@@ -159,6 +113,7 @@ DATA_SOURCES = {
         "filename": "brookhaven_parcels.csv",
     },
 }
+
 
 
 # Brookhaven hamlets and their ZIP codes
@@ -628,7 +583,7 @@ class DataSourceDiscovery:
             resp = requests.get(
                 DataSourceDiscovery.NY_OPEN_DATA_SEARCH,
                 params=params,
-                timeout=15,
+                timeout=60,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -657,7 +612,7 @@ class DataSourceDiscovery:
         try:
             # Try fetching 1 row
             test_url = f"{url}?$limit=1"
-            resp = requests.get(test_url, timeout=10)
+            resp = requests.get(test_url, timeout=60)
 
             if resp.status_code == 200:
                 data = resp.json()
@@ -691,7 +646,7 @@ class DataSourceDiscovery:
                 "resultRecordCount": 1,
                 "f": "json",
             }
-            resp = requests.get(layer_url, params=params, timeout=15)
+            resp = requests.get(layer_url, params=params, timeout=60)
             data = resp.json()
 
             if "features" in data:
@@ -771,179 +726,196 @@ class DataPuller:
 
     # ── Socrata API (NY Open Data) ──
 
-    def _pull_socrata(self, source_name: str, config: dict):
-        """
-        Pull data from a Socrata API with pagination and filtering.
-        Socrata uses SoQL for queries.
-        """
-        if not self._should_download(source_name):
-            filepath = os.path.join(RAW_DIR, config["filename"])
-            if self._should_ingest(source_name, filepath):
-                self._ingest_json_file(source_name, filepath)
-                self.manifest.mark_ingested(source_name)
-            return
+        def _pull_socrata(self, source_name: str, config: dict):
+            """Pull from Socrata API, trying fallback URLs if primary fails."""
+            if not self._should_download(source_name):
+                filepath = os.path.join(RAW_DIR, config["filename"])
+                if self._should_ingest(source_name, filepath):
+                    self._ingest_json_file(source_name, filepath)
+                    self.manifest.mark_ingested(source_name)
+                return
 
-        base_url = config["base_url"]
-        fallback_url = config.get("fallback_url")
-        filters = config.get("filters", {})
-        page_size = config.get("page_size", 50000)
-        filename = config["filename"]
-        filepath = os.path.join(RAW_DIR, filename)
+            urls_to_try = [config["base_url"]]
+            urls_to_try.extend(config.get("fallback_urls", []))
 
-        # Verify endpoint is alive
-        logger.info("[%s] Verifying Socrata endpoint: %s", source_name, base_url)
-        check = self.discovery.verify_socrata_endpoint(base_url)
+            filters = config.get("filters", {})
+            page_size = config.get("page_size", 50000)
+            filename = config["filename"]
+            filepath = os.path.join(RAW_DIR, filename)
 
-        if check["status"] != "ok":
-            logger.warning("[%s] Primary endpoint failed: %s", source_name, check.get("message", ""))
+            working_url = None
+            working_fields = []
 
-            if fallback_url:
-                logger.info("[%s] Trying fallback: %s", source_name, fallback_url)
-                check = self.discovery.verify_socrata_endpoint(fallback_url)
+            for url in urls_to_try:
+                logger.info("[%s] Trying: %s", source_name, url)
+                check = self.discovery.verify_socrata_endpoint(url)
                 if check["status"] == "ok":
-                    base_url = fallback_url
-                    logger.info("[%s] Fallback endpoint works", source_name)
+                    working_url = url
+                    working_fields = check.get("sample_fields", [])
+                    logger.info("[%s] ✅ Works. Fields: %s",
+                               source_name, ", ".join(working_fields[:10]))
+                    break
                 else:
-                    logger.error("[%s] Fallback also failed: %s", source_name, check.get("message", ""))
-                    self._try_discover_dataset(source_name)
-                    return
-            else:
-                logger.error("[%s] No fallback URL configured", source_name)
+                    logger.warning("[%s] ❌ Failed: %s", source_name, check.get("message", ""))
+
+            if not working_url:
+                logger.error("[%s] All endpoints failed", source_name)
                 self._try_discover_dataset(source_name)
                 return
 
-        logger.info("[%s] Endpoint OK. Available fields: %s",
-                     source_name, ", ".join(check.get("sample_fields", [])[:10]))
+            # Build SoQL WHERE clause
+            # Try multiple case variations since Socrata is case-sensitive
+            where_parts = []
+            for field, value in filters.items():
+                matched_field = self._match_field_name(field, working_fields)
+                if matched_field:
+                    # Try to find the exact case of the value
+                    # by querying distinct values
+                    actual_value = value
+                    try:
+                        vresp = requests.get(working_url, params={
+                            "$select": f"distinct {matched_field}",
+                            "$where": f"upper({matched_field}) = '{value.upper()}'",
+                            "$limit": 5,
+                        }, timeout=60)
+                        if vresp.status_code == 200:
+                            vdata = vresp.json()
+                            if vdata:
+                                actual_value = vdata[0].get(matched_field, value)
+                                logger.info(
+                                    "[%s] Filter %s: using exact value '%s'",
+                                    source_name, matched_field, actual_value,
+                                )
+                    except Exception:
+                        pass
 
-        # Build SoQL filter
-        where_parts = []
-        for field, value in filters.items():
-            # Check if this field exists in the dataset
-            if check.get("sample_fields") and field not in check["sample_fields"]:
-                # Try uppercase
-                upper_field = field.upper()
-                if upper_field in [f.upper() for f in check.get("sample_fields", [])]:
-                    # Find the actual casing
-                    for f in check["sample_fields"]:
-                        if f.upper() == upper_field:
-                            field = f
-                            break
+                    where_parts.append(f"{matched_field} = '{actual_value}'")
                 else:
-                    logger.warning(
-                        "[%s] Filter field '%s' not found in dataset. Skipping filter.",
-                        source_name, field,
-                    )
-                    continue
-            where_parts.append(f"{field} = '{value}'")
+                    logger.warning("[%s] Filter field '%s' not found", source_name, field)
 
-        where_clause = " AND ".join(where_parts) if where_parts else None
+            where_clause = " AND ".join(where_parts) if where_parts else None
 
-        # Paginate through results
-        all_records = []
-        offset = 0
-        page = 0
-
-        while True:
-            params = {
-                "$limit": page_size,
-                "$offset": offset,
-                "$order": ":id",
-            }
             if where_clause:
-                params["$where"] = where_clause
+                logger.info("[%s] Filter: $where=%s", source_name, where_clause)
 
-            logger.info(
-                "[%s] Fetching page %d (offset %d, limit %d)",
-                source_name, page + 1, offset, page_size,
-            )
+                # Get total count first
+                try:
+                    count_resp = requests.get(working_url, params={
+                        "$select": "count(*)",
+                        "$where": where_clause,
+                    }, timeout=30)
+                    if count_resp.status_code == 200:
+                        count_data = count_resp.json()
+                        if count_data:
+                            total_expected = count_data[0].get("count", "?")
+                            logger.info("[%s] Expected records: %s", source_name, total_expected)
+                except Exception as e:
+                    logger.warning("[%s] Could not get count: %s", source_name, e)
 
-            try:
-                resp = requests.get(base_url, params=params, timeout=120)
+            # Paginate
+            all_records = []
+            offset = 0
+            page_num = 0
 
-                if resp.status_code == 404:
-                    logger.error("[%s] 404 Not Found. Dataset may have been removed.", source_name)
-                    self._try_discover_dataset(source_name)
-                    return
+            while True:
+                params = {
+                    "$limit": page_size,
+                    "$offset": offset,
+                    "$order": ":id",
+                }
+                if where_clause:
+                    params["$where"] = where_clause
 
-                resp.raise_for_status()
-                data = resp.json()
+                logger.info("[%s] Page %d (offset %d)", source_name, page_num + 1, offset)
 
-                if not data:
-                    logger.info("[%s] No more records at offset %d", source_name, offset)
+                try:
+                    resp = requests.get(working_url, params=params, timeout=300)
+
+                    if resp.status_code == 404:
+                        logger.error("[%s] 404 during pagination", source_name)
+                        break
+
+                    resp.raise_for_status()
+                    data = resp.json()
+
+                    if not data:
+                        break
+
+                    if config.get("brookhaven_filter"):
+                        data = [r for r in data if self._is_brookhaven(r)]
+
+                    all_records.extend(data)
+                    logger.info("[%s] Got %d records (total: %d)",
+                               source_name, len(data), len(all_records))
+
+                    if len(data) < page_size:
+                        break
+
+                    offset += page_size
+                    page_num += 1
+                    time.sleep(1)  # Be gentle with the API
+
+                except requests.exceptions.ReadTimeout:
+                    logger.warning("[%s] Timeout on page %d. Retrying with smaller page...",
+                                 source_name, page_num + 1)
+                    # Retry with smaller page size
+                    page_size = min(page_size, 10000)
+                    time.sleep(5)
+                    continue
+                except requests.exceptions.HTTPError as e:
+                    logger.error("[%s] HTTP error: %s", source_name, e)
+                    break
+                except Exception as e:
+                    logger.error("[%s] Error: %s", source_name, e)
                     break
 
-                all_records.extend(data)
-                logger.info(
-                    "[%s] Got %d records (total so far: %d)",
-                    source_name, len(data), len(all_records),
-                )
+            if not all_records:
+                logger.warning("[%s] No records retrieved", source_name)
+                return
 
-                if len(data) < page_size:
-                    break
+            # Save to file
+            with open(filepath, "w") as f:
+                json.dump(all_records, f)
 
-                offset += page_size
-                page += 1
+            file_size = os.path.getsize(filepath)
+            file_checksum = self.manifest.file_checksum(filepath)
 
-                # Rate limit
-                time.sleep(0.5)
+            logger.info("[%s] Saved %d records to %s (%s bytes)",
+                       source_name, len(all_records), filepath, f"{file_size:,}")
 
-            except requests.exceptions.HTTPError as e:
-                logger.error("[%s] HTTP error on page %d: %s", source_name, page + 1, e)
-                break
-            except Exception as e:
-                logger.error("[%s] Error on page %d: %s", source_name, page + 1, e)
-                break
+            # Store in DB
+            count = 0
+            for item in all_records:
+                raw = RawRecord(source=source_name, raw_data=item)
+                raw.compute_checksum()
+                self.db.store_raw_record(raw)
+                count += 1
+                if count % 5000 == 0:
+                    self.db.conn.commit()
 
-        if not all_records:
-            logger.warning("[%s] No records retrieved", source_name)
-            return
+            self.db.conn.commit()
 
-        # Save to file
-        with open(filepath, "w") as f:
-            json.dump(all_records, f)
+            self.manifest.set(source_name, {
+                "source_name": source_name,
+                "filepath": filepath,
+                "filename": filename,
+                "url": working_url,
+                "downloaded_at": datetime.now(timezone.utc).isoformat(),
+                "last_check_at": datetime.now(timezone.utc).isoformat(),
+                "file_size": file_size,
+                "file_checksum": file_checksum,
+                "http_status": 200,
+                "etag": None,
+                "last_modified": None,
+                "content_type": "application/json",
+                "ingested": True,
+                "ingested_at": datetime.now(timezone.utc).isoformat(),
+                "record_count": count,
+                "working_url": working_url,
+                "filters_used": filters,
+            })
 
-        file_size = os.path.getsize(filepath)
-        file_checksum = self.manifest.file_checksum(filepath)
-
-        logger.info(
-            "[%s] Saved %d records to %s (%s bytes)",
-            source_name, len(all_records), filepath, f"{file_size:,}",
-        )
-
-        # Store in database
-        count = 0
-        for item in all_records:
-            raw = RawRecord(source=source_name, raw_data=item)
-            raw.compute_checksum()
-            self.db.store_raw_record(raw)
-            count += 1
-            if count % 5000 == 0:
-                self.db.conn.commit()
-
-        self.db.conn.commit()
-
-        # Update manifest
-        manifest_entry = {
-            "source_name": source_name,
-            "filepath": filepath,
-            "filename": filename,
-            "url": base_url,
-            "downloaded_at": datetime.now(timezone.utc).isoformat(),
-            "last_check_at": datetime.now(timezone.utc).isoformat(),
-            "file_size": file_size,
-            "file_checksum": file_checksum,
-            "http_status": 200,
-            "etag": None,
-            "last_modified": None,
-            "content_type": "application/json",
-            "ingested": True,
-            "ingested_at": datetime.now(timezone.utc).isoformat(),
-            "record_count": count,
-            "filters_used": filters,
-        }
-        self.manifest.set(source_name, manifest_entry)
-
-        logger.info("[%s] Complete: %d records stored", source_name, count)
+            logger.info("[%s] Complete: %d records stored", source_name, count)
 
     # ── ArcGIS REST API (Suffolk County GIS) ──
 
@@ -986,7 +958,7 @@ class DataPuller:
             "f": "json",
         }
         try:
-            count_resp = requests.get(layer_url, params=count_params, timeout=15)
+            count_resp = requests.get(layer_url, params=count_params, timeout=60)
             count_data = count_resp.json()
             total_count = count_data.get("count", 0)
             logger.info("[%s] Total features matching filter: %d", source_name, total_count)
@@ -1649,7 +1621,7 @@ class DataPuller:
                         "resultRecordCount": 1,
                         "f": "json",
                     }
-                    resp = requests.get(url, params=params, timeout=15)
+                    resp = requests.get(url, params=params, timeout=60)
                     data = resp.json()
 
                     if "error" in data:
@@ -1685,7 +1657,7 @@ class DataPuller:
                 "where": working_where,
                 "returnCountOnly": "true",
                 "f": "json",
-            }, timeout=15)
+            }, timeout=60)
             total_count = count_resp.json().get("count")
             logger.info("[%s] Total features: %s", source_name, total_count)
         except Exception:
@@ -1809,7 +1781,7 @@ class DataPuller:
 
         for url in check_urls:
             try:
-                resp = requests.get(url, timeout=15, headers={
+                resp = requests.get(url, timeout=60, headers={
                     "User-Agent": "BrookhavenPropertyPipeline/1.0"
                 })
 
@@ -2105,25 +2077,34 @@ class DataPuller:
 # Normalizer & Deduplicator
 # ──────────────────────────────────────────────
 
+# ──────────────────────────────────────────────
+# Replace the PropertyNormalizer class in pipeline.py
+# ──────────────────────────────────────────────
+
 class PropertyNormalizer:
     """Transform raw records into clean, deduplicated properties."""
 
+    # Mapping from our schema field to possible source column names
     FIELD_MAPPINGS = {
         "address": [
+            # Full address fields
             "address", "property_address", "street_address", "location",
             "prop_addr", "situs_address", "full_address", "street",
             "print_key_address",
+            # 7vem-aaz7 uses split fields — handled specially in _build_address()
         ],
         "city": [
-            "city", "municipality", "town", "muni_name", "village",
-            "hamlet", "locality",
+            "city", "municipality_name", "municipality", "town",
+            "muni_name", "village", "hamlet", "locality",
+            "mailing_address_city",
         ],
         "zip_code": [
             "zip", "zip_code", "zipcode", "postal_code", "zip5",
+            "mailing_address_zip",
         ],
         "parcel_id": [
-            "parcel_id", "parcel", "tax_map", "print_key", "sbl",
-            "swis_sbl", "parcel_number", "pin", "apn",
+            "print_key_code", "parcel_id", "parcel", "tax_map",
+            "print_key", "sbl", "swis_sbl", "parcel_number", "pin", "apn",
         ],
         "square_feet": [
             "square_feet", "sqft", "sq_ft", "living_area",
@@ -2143,11 +2124,15 @@ class PropertyNormalizer:
         "year_built": [
             "year_built", "yr_built", "year_constructed", "built_year",
             "effective_year",
+            # NOTE: "roll_year" is NOT year_built — it's the tax year
         ],
         "assessed_value": [
-            "assessed_value", "total_av", "full_market_value",
-            "assessed_total", "total_assessed_value", "assessment",
-            "full_mkt_val",
+            "assessment_total", "assessed_value", "total_av",
+            "full_market_value", "assessed_total",
+            "total_assessed_value", "assessment", "full_mkt_val",
+        ],
+        "market_value": [
+            "full_market_value", "market_value", "estimated_value",
         ],
         "last_sale_price": [
             "sale_price", "last_sale_price", "sold_price", "price",
@@ -2161,21 +2146,33 @@ class PropertyNormalizer:
             "property_class", "prop_class", "class_code", "use_code",
             "land_use", "property_type", "building_class",
         ],
+        "property_class_description": [
+            "property_class_description", "class_description",
+            "use_description", "property_type_desc",
+        ],
         "owner_name": [
             "owner", "owner_name", "owner_1", "primary_owner",
             "owner_name_1",
+            # 7vem-aaz7 uses split fields — handled specially in _build_owner()
         ],
         "latitude": [
-            "latitude", "lat", "y",
+            "latitude", "lat", "y", "_latitude",
+            "grid_coordinates_north",
         ],
         "longitude": [
-            "longitude", "lng", "lon", "long", "x",
+            "longitude", "lng", "lon", "long", "x", "_longitude",
+            "grid_coordinates_east",
+        ],
+        "front": [
+            "front", "frontage", "front_feet",
+        ],
+        "depth": [
+            "depth", "depth_feet",
         ],
     }
 
     def __init__(self, db: Database):
         self.db = db
-        self.normalizer = AddressNormalizer()
 
     def normalize_all(self):
         """Pull raw records and normalize into properties table."""
@@ -2185,6 +2182,7 @@ class PropertyNormalizer:
         batch_size = 1000
         total_processed = 0
         total_stored = 0
+        total_skipped = 0
 
         while True:
             rows = self.db.fetch_all("""
@@ -2203,37 +2201,86 @@ class PropertyNormalizer:
                     raw_data = json.loads(raw_data)
 
                 prop = self._extract_property(raw_data, row["source"])
-                if prop and prop.address:
+                if prop and prop.address and len(prop.address.strip()) > 3:
                     self.db.upsert_property(prop)
                     total_stored += 1
+                else:
+                    total_skipped += 1
 
                 total_processed += 1
 
             self.db.conn.commit()
             offset += batch_size
-            logger.info("Processed %d raw records, stored %d properties",
-                        total_processed, total_stored)
+            logger.info(
+                "Processed %d raw records — stored: %d, skipped: %d",
+                total_processed, total_stored, total_skipped,
+            )
 
-        logger.info("Normalization complete: %d processed, %d stored",
-                     total_processed, total_stored)
+        logger.info(
+            "Normalization complete: %d processed, %d stored, %d skipped",
+            total_processed, total_stored, total_skipped,
+        )
 
     def _extract_property(self, raw: dict, source: str) -> Optional[CleanProperty]:
         """Extract and normalize a property from a raw record."""
         try:
-            address_raw = self._find_field(raw, "address") or ""
-            city_raw = self._find_field(raw, "city") or ""
-            zip_raw = self._find_field(raw, "zip_code") or ""
-
+            # Build address from possibly split fields
+            address_raw = self._build_address(raw)
             if not address_raw:
                 return None
 
+            city_raw = self._find_field(raw, "city") or ""
+            zip_raw = self._find_field(raw, "zip_code") or ""
+
             address = AddressNormalizer.normalize(address_raw)
+            if not address or len(address) < 3:
+                return None
+
+            # Clean up city name
             city = city_raw.strip().title() if city_raw else "Brookhaven"
+            # Remove "Town Of" prefix if present
+            city = re.sub(r'^Town\s+Of\s+', '', city, flags=re.IGNORECASE).strip()
+
             zip_code = str(zip_raw).strip()[:5] if zip_raw else ""
 
             slug = AddressNormalizer.make_slug(address, city)
             if not slug:
                 return None
+
+            # Build owner name from possibly split fields
+            owner = self._build_owner(raw)
+
+            # Get property class with description
+            prop_class = self._find_field(raw, "property_class") or ""
+            prop_class_desc = self._find_field(raw, "property_class_description") or ""
+            if prop_class and prop_class_desc:
+                prop_class_full = f"{prop_class} - {prop_class_desc}"
+            else:
+                prop_class_full = prop_class or prop_class_desc
+
+            # Get assessed and market values
+            assessed = self._safe_int(self._find_field(raw, "assessed_value"))
+            market = self._safe_int(self._find_field(raw, "market_value"))
+
+            # Calculate lot dimensions if we have front and depth
+            lot_size = self._safe_float(self._find_field(raw, "lot_size"))
+            if not lot_size:
+                front = self._safe_float(self._find_field(raw, "front"))
+                depth = self._safe_float(self._find_field(raw, "depth"))
+                if front and depth and front > 0 and depth > 0:
+                    lot_size = front * depth  # square feet
+
+            # Grid coordinates (NY State Plane) — NOT lat/lon
+            # These need to be converted, so skip them for geocoding
+            lat = self._safe_float(raw.get("_latitude") or raw.get("latitude") or raw.get("lat"))
+            lon = self._safe_float(raw.get("_longitude") or raw.get("longitude") or raw.get("lon") or raw.get("lng"))
+
+            # Don't use grid_coordinates — they're State Plane, not WGS84
+            grid_east = raw.get("grid_coordinates_east")
+            grid_north = raw.get("grid_coordinates_north")
+            if grid_east and grid_north and not lat and not lon:
+                # We'll geocode these later — State Plane coords need projection conversion
+                pass
 
             prop = CleanProperty(
                 address=address,
@@ -2242,18 +2289,18 @@ class PropertyNormalizer:
                 state="NY",
                 zip_code=zip_code,
                 parcel_id=self._find_field(raw, "parcel_id") or "",
-                latitude=self._safe_float(self._find_field(raw, "latitude")),
-                longitude=self._safe_float(self._find_field(raw, "longitude")),
-                lot_size=self._safe_float(self._find_field(raw, "lot_size")),
+                latitude=lat,
+                longitude=lon,
+                lot_size=lot_size,
                 square_feet=self._safe_int(self._find_field(raw, "square_feet")),
                 beds=self._safe_int(self._find_field(raw, "beds")),
                 baths=self._safe_float(self._find_field(raw, "baths")),
                 year_built=self._safe_int(self._find_field(raw, "year_built")),
-                assessed_value=self._safe_int(self._find_field(raw, "assessed_value")),
+                assessed_value=assessed or market,  # Use market value as fallback
                 last_sale_price=self._safe_int(self._find_field(raw, "last_sale_price")),
                 last_sale_date=self._safe_date(self._find_field(raw, "last_sale_date")),
-                property_class=self._find_field(raw, "property_class"),
-                owner_name=self._find_field(raw, "owner_name"),
+                property_class=prop_class_full or None,
+                owner_name=owner or None,
             )
 
             return prop
@@ -2262,12 +2309,91 @@ class PropertyNormalizer:
             logger.debug("Failed to extract property: %s", e)
             return None
 
+    def _build_address(self, raw: dict) -> str:
+        """
+        Build a full street address from raw fields.
+        Handles both single-field addresses and split fields
+        like parcel_address_number + parcel_address_street + parcel_address_suff.
+        """
+        # Try single full-address fields first
+        for field_name in self.FIELD_MAPPINGS["address"]:
+            val = raw.get(field_name)
+            if val and str(val).strip() and len(str(val).strip()) > 3:
+                return str(val).strip()
+
+        # Try building from split fields (7vem-aaz7 format)
+        # Parcel address fields
+        number = str(raw.get("parcel_address_number", "")).strip()
+        street = str(raw.get("parcel_address_street", "")).strip()
+        suffix = str(raw.get("parcel_address_suff", "")).strip()
+
+        if number and street:
+            parts = [number, street]
+            if suffix:
+                parts.append(suffix)
+            address = " ".join(parts)
+            if len(address) > 3:
+                return address
+
+        # Try mailing address as fallback
+        mail_number = str(raw.get("mailing_address_number", "")).strip()
+        mail_street = str(raw.get("mailing_address_street", "")).strip()
+        mail_suffix = str(raw.get("mailing_address_suff", "")).strip()
+
+        if mail_number and mail_street:
+            parts = [mail_number, mail_street]
+            if mail_suffix:
+                parts.append(mail_suffix)
+            address = " ".join(parts)
+            if len(address) > 3:
+                return address
+
+        # Try other common combined patterns
+        for num_field, street_field in [
+            ("house_number", "street_name"),
+            ("street_number", "street_name"),
+            ("addr_number", "addr_street"),
+            ("house_no", "street"),
+        ]:
+            num = str(raw.get(num_field, "")).strip()
+            st = str(raw.get(street_field, "")).strip()
+            if num and st:
+                return f"{num} {st}"
+
+        return ""
+
+    def _build_owner(self, raw: dict) -> str:
+        """
+        Build an owner name from raw fields.
+        Handles split first/last name fields.
+        """
+        # Try single full-name fields first
+        for field_name in [
+            "owner", "owner_name", "owner_1", "primary_owner",
+        ]:
+            val = raw.get(field_name)
+            if val and str(val).strip():
+                return str(val).strip()
+
+        # Build from first + last (7vem-aaz7 format)
+        first = str(raw.get("primary_owner_first_name", "")).strip()
+        last = str(raw.get("primary_owner_last_name", "")).strip()
+
+        if first and last:
+            return f"{first} {last}"
+        elif last:
+            return last
+        elif first:
+            return first
+
+        return ""
+
     def _find_field(self, raw: dict, our_field: str) -> Optional[str]:
         """Try multiple possible column names to find a field value."""
         possible_names = self.FIELD_MAPPINGS.get(our_field, [])
         for name in possible_names:
             val = raw.get(name)
-            if val and str(val).strip():
+            if val is not None and str(val).strip():
                 return str(val).strip()
         return None
 
@@ -2296,8 +2422,12 @@ class PropertyNormalizer:
         if val is None:
             return None
         try:
-            for fmt in ["%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y", "%Y%m%d",
-                         "%d-%b-%Y", "%B %d, %Y", "%m/%d/%y"]:
+            for fmt in [
+                "%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y", "%Y%m%d",
+                "%d-%b-%Y", "%B %d, %Y", "%m/%d/%y",
+                "%Y-%m-%dT%H:%M:%S.%f",  # Socrata datetime format
+                "%Y-%m-%dT%H:%M:%S",
+            ]:
                 try:
                     dt = datetime.strptime(str(val).strip(), fmt)
                     return dt.strftime("%Y-%m-%d")
@@ -2372,7 +2502,7 @@ class PropertyGeocoder:
                 "benchmark": "Public_AR_Current",
                 "format": "json",
             }
-            resp = requests.get(self.census_url, params=params, timeout=10)
+            resp = requests.get(self.census_url, params=params, timeout=60)
             data = resp.json()
             matches = data.get("result", {}).get("addressMatches", [])
             if matches:
@@ -2888,7 +3018,7 @@ def verify_sources():
                         "resultRecordCount": 1,
                         "f": "json",
                     }
-                    resp = requests.get(url, params=params, timeout=15)
+                    resp = requests.get(url, params=params, timeout=60)
                     data = resp.json()
                     features = data.get("features", [])
                     if features:
@@ -2900,7 +3030,7 @@ def verify_sources():
                         # Try fallback WHERE clauses
                         for fb_where in config.get("fallback_where_clauses", []):
                             params["where"] = fb_where
-                            resp2 = requests.get(url, params=params, timeout=15)
+                            resp2 = requests.get(url, params=params, timeout=60)
                             data2 = resp2.json()
                             if data2.get("features"):
                                 print(f"  │  Alt filter: ✅ '{fb_where}' works")
@@ -2931,7 +3061,7 @@ def verify_sources():
             url = config["url"]
             print(f"  │  URL: {url}")
             try:
-                resp = requests.head(url, timeout=10, allow_redirects=True)
+                resp = requests.head(url, timeout=60, allow_redirects=True)
                 if resp.status_code == 200:
                     size = resp.headers.get("Content-Length", "unknown")
                     ctype = resp.headers.get("Content-Type", "unknown")
@@ -2963,7 +3093,7 @@ def verify_sources():
             for url in urls:
                 print(f"  │  URL: {url}")
                 try:
-                    resp = requests.get(url, timeout=10, headers={
+                    resp = requests.get(url, timeout=60, headers={
                         "User-Agent": "BrookhavenPropertyPipeline/1.0"
                     })
                     if resp.status_code == 200:
