@@ -9,6 +9,7 @@ Pull public property data from New York State sources, normalize addresses, dedu
     setup_sources.py     Inspect datasets and find correct filters
     debug_sources.py     Diagnose empty data issues
     requirements.txt     Python dependencies
+    .env.sample          Template for environment variables
     data/                Downloaded files and cache (created automatically)
 
 ## Prerequisites
@@ -45,10 +46,13 @@ Set the database connection:
 
     export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/brookhaven"
 
-To make it permanent add it to your shell profile:
+To make it permanent, copy the sample env file and fill it in:
 
-    echo 'export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/brookhaven"' >> ~/.zshrc
-    source ~/.zshrc
+    cp .env.sample .env
+    # edit .env with your values, then:
+    source .env
+
+See the Environment Variables section below for the full list of supported variables.
 
 ## Quick Start
 
@@ -169,6 +173,64 @@ Common causes of empty data:
 - Filter field names do not match the actual column names
 - Case mismatch in filter values (Suffolk vs SUFFOLK)
 - API timeouts causing the pull to fail
+
+## Data Sources
+
+The pipeline pulls from three categories of source, all configured in `DATA_SOURCES` inside `pipeline.py`.
+
+### NYS Assessment Data (active)
+
+Public property assessment records from data.ny.gov (Socrata dataset 7vem-aaz7), filtered to
+Suffolk County / Town of Brookhaven. Downloaded automatically on `--pull`. No credentials required.
+
+### FOIL Data (awaiting files)
+
+Two local CSV sources are pre-configured and activate automatically once the files are in place.
+
+**Suffolk County deed records** — sale price, sale date, grantor, grantee, deed type.
+File: `data/raw/brookhaven_deeds.csv`
+Obtain via FOIL request to the Suffolk County Clerk.
+
+**Town of Brookhaven assessor detail** — year built, sqft, beds/baths (full + half), stories,
+lot size, heating type, garage type, condition, land value.
+File: `data/raw/brookhaven_assessor.csv`
+Obtain via FOIL request to the Brookhaven Assessor's Office at (631) 451-6302.
+
+Once either file is in place just run:
+
+    python pipeline.py --pull --normalize
+
+The pipeline skips missing files with a warning, so having only one file is fine.
+
+### MLS / IDX — RESO Web API (requires license)
+
+Active and closed MLS listings from OneKey MLS via the RESO Web API standard.
+Requires a New York real estate license or a licensed broker sponsorship.
+Set the MLS environment variables (see Environment Variables below) and then run:
+
+    python pipeline.py --pull --normalize
+
+The first run does a full pull. Subsequent runs are incremental — only records with a
+`ModificationTimestamp` newer than the last pull are fetched and merged by `ListingKey`.
+
+New fields written by this source: `mls_number`, `listing_status`, `list_price`,
+`close_price`, `close_date`, `days_on_market`, `listing_date`, `listing_remarks`,
+`list_agent_name`, `list_office_name`.
+
+## Environment Variables
+
+Copy `.env.sample` to `.env` and fill in the values you need.
+
+    DATABASE_URL          PostgreSQL connection string (required)
+    GEOCODER_API_KEY      Optional — not currently used (Census geocoder needs no key)
+
+MLS / IDX variables (only needed if using the mls_reso source):
+
+    MLS_API_URL           Base RESO Web API URL, e.g. https://api.onekeymls.com/reso/odata
+    MLS_TOKEN_URL         OAuth 2.0 token endpoint
+    MLS_CLIENT_ID         OAuth 2.0 client ID
+    MLS_CLIENT_SECRET     OAuth 2.0 client secret
+    MLS_ACCESS_TOKEN      Static bearer token (alternative to OAuth — use one or the other)
 
 ## All Pipeline Commands
 
@@ -459,3 +521,16 @@ rm /tmp/brookhaven_pipeline.lock.
 
 Geocoding is slow: It is rate-limited on purpose. Run with a larger limit
 during off hours: python pipeline.py --geocode --geocode-limit 2000.
+
+MLS source skipped silently: MLS_API_URL is not set. Export it (and your
+credentials) before running --pull.
+
+MLS returns 401 Unauthorized: Your token has expired or the credentials are
+wrong. Re-check MLS_CLIENT_ID, MLS_CLIENT_SECRET, and MLS_TOKEN_URL.
+
+MLS returns 403 Forbidden: Your IDX agreement does not cover the resource
+being requested. Check with your MLS or IDX vendor.
+
+FOIL file not loading: Confirm the file is at data/raw/brookhaven_deeds.csv
+or data/raw/brookhaven_assessor.csv (exact names matter). Run
+python pipeline.py --status to see whether the file was detected.

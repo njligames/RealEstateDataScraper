@@ -55,6 +55,11 @@ from geopy.extra.rate_limiter import RateLimiter
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
+import os
+import certifi
+os.environ['SSL_CERT_FILE'] = certifi.where()
+os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
+
 # ──────────────────────────────────────────────
 # Configuration
 # ──────────────────────────────────────────────
@@ -65,6 +70,16 @@ DATABASE_URL = os.environ.get(
 )
 
 GEOCODER_API_KEY = os.environ.get("GEOCODER_API_KEY", "")
+
+# MLS / IDX — RESO Web API credentials
+# Provided by your MLS (OneKey MLS) or IDX vendor after license approval.
+# OAuth 2.0: set MLS_CLIENT_ID + MLS_CLIENT_SECRET (token fetched automatically)
+# Static bearer token: set MLS_ACCESS_TOKEN directly
+MLS_API_URL      = os.environ.get("MLS_API_URL", "")           # e.g. https://api.onekeymls.com/reso/odata
+MLS_CLIENT_ID    = os.environ.get("MLS_CLIENT_ID", "")
+MLS_CLIENT_SECRET= os.environ.get("MLS_CLIENT_SECRET", "")
+MLS_ACCESS_TOKEN = os.environ.get("MLS_ACCESS_TOKEN", "")      # static token (alternative to OAuth)
+MLS_TOKEN_URL    = os.environ.get("MLS_TOKEN_URL", "")         # OAuth token endpoint
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 RAW_DIR = os.path.join(DATA_DIR, "raw")
@@ -111,6 +126,69 @@ DATA_SOURCES = {
         "path": os.path.join(RAW_DIR, "brookhaven_parcels.csv"),
         "description": "Local export of Brookhaven data",
         "filename": "brookhaven_parcels.csv",
+    },
+
+    # ─────────────────────────────────────────
+    # MLS / IDX — RESO Web API (OneKey MLS)
+    # Requires a NY real estate license or licensed broker sponsorship.
+    # Set MLS_API_URL + (MLS_CLIENT_ID/MLS_CLIENT_SECRET or MLS_ACCESS_TOKEN)
+    # in your environment before enabling this source.
+    # Standard RESO endpoint pattern:
+    #   {MLS_API_URL}/Property?$filter=City eq 'Brookhaven'&$top=200
+    # ─────────────────────────────────────────
+    "mls_reso": {
+        "type": "reso_api",
+        "description": "OneKey MLS active + sold listings via RESO Web API",
+        "filename": "mls_listings.json",
+        # OData filter — adjust City / PostalCode values as needed
+        "filter": "City eq 'Brookhaven' or PostalCode in ('11772','11763','11967','11950',"
+                  "'11951','11720','11784','11738','11727','11713','11777','11776',"
+                  "'11766','11764','11778','11961','11953','11980','11742','11755',"
+                  "'11790','11733')",
+        "resource": "Property",      # RESO resource name (Property, Member, Office…)
+        "page_size": 200,            # RESO servers often cap at 200–500 per page
+        # Pull Active + Closed listings; adjust to taste
+        "status_filter": "StandardStatus in ('Active','ActiveUnderContract','Pending','Closed')",
+        # Incremental mode: only fetch records modified since last pull
+        "incremental": True,
+    },
+
+    # ─────────────────────────────────────────
+    # Suffolk County Deed Records (FOIL)
+    # Obtain via FOIL request to Suffolk County Clerk.
+    # Ask for all recorded deed transfers in Town of Brookhaven
+    # as a CSV or database export, then copy the file here:
+    #   cp deed_records.csv data/raw/brookhaven_deeds.csv
+    # Expected fields (exact names vary by export format):
+    #   sbl / print_key_code, property_address, sale_date,
+    #   sale_price / consideration, grantor, grantee,
+    #   deed_type / instrument_type, liber, page
+    # ─────────────────────────────────────────
+    "brookhaven_deeds": {
+        "type": "local_csv",
+        "path": os.path.join(RAW_DIR, "brookhaven_deeds.csv"),
+        "description": "Suffolk County deed transfer records (FOIL)",
+        "filename": "brookhaven_deeds.csv",
+    },
+
+    # ─────────────────────────────────────────
+    # Town of Brookhaven Assessor Detail (FOIL)
+    # Obtain via FOIL request to Town of Brookhaven Assessor's Office
+    # (1 Independence Hill, Farmingville NY 11738 / 631-451-6302).
+    # Ask for the full assessment roll with property characteristic
+    # detail as a CSV or database export, then copy the file here:
+    #   cp assessor_detail.csv data/raw/brookhaven_assessor.csv
+    # Expected fields (exact names vary by export format):
+    #   sbl / print_key_code, property_address, year_built,
+    #   gross_sqft / gla, bedrooms, full_baths, half_baths,
+    #   stories, lot_size / acres, garage_type, heat_type,
+    #   condition, land_av, total_av, full_market_value
+    # ─────────────────────────────────────────
+    "brookhaven_assessor": {
+        "type": "local_csv",
+        "path": os.path.join(RAW_DIR, "brookhaven_assessor.csv"),
+        "description": "Town of Brookhaven assessor detail (FOIL)",
+        "filename": "brookhaven_assessor.csv",
     },
 }
 
@@ -304,10 +382,30 @@ class CleanProperty:
     baths: Optional[float] = None
     year_built: Optional[int] = None
     assessed_value: Optional[int] = None
+    land_value: Optional[int] = None
     last_sale_price: Optional[int] = None
     last_sale_date: Optional[str] = None
     property_class: Optional[str] = None
     owner_name: Optional[str] = None
+    half_baths: Optional[float] = None
+    stories: Optional[float] = None
+    heating_type: Optional[str] = None
+    garage_type: Optional[str] = None
+    condition: Optional[str] = None
+    grantor: Optional[str] = None
+    grantee: Optional[str] = None
+    deed_type: Optional[str] = None
+    # MLS / IDX listing fields
+    mls_number: Optional[str] = None
+    listing_status: Optional[str] = None
+    list_price: Optional[int] = None
+    close_price: Optional[int] = None
+    close_date: Optional[str] = None
+    days_on_market: Optional[int] = None
+    listing_date: Optional[str] = None
+    listing_remarks: Optional[str] = None
+    list_agent_name: Optional[str] = None
+    list_office_name: Optional[str] = None
 
 
 # ──────────────────────────────────────────────
@@ -315,6 +413,8 @@ class CleanProperty:
 # ──────────────────────────────────────────────
 
 class Database:
+
+
     def __init__(self, dsn: str):
         self.dsn = dsn
         self.conn = None
@@ -323,6 +423,19 @@ class Database:
         self.conn = psycopg2.connect(self.dsn)
         self.conn.autocommit = False
         logger.info("Connected to database")
+
+    def ensure_connected(self):
+        """Reconnect if the connection was lost."""
+        try:
+            if self.conn is None or self.conn.closed:
+                self.connect()
+                return
+            # Test the connection
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT 1")
+        except (psycopg2.InterfaceError, psycopg2.OperationalError):
+            log.warning("Database connection lost — reconnecting")
+            self.connect()
 
     def close(self):
         if self.conn:
@@ -372,13 +485,53 @@ class Database:
             baths           REAL,
             year_built      INTEGER,
             assessed_value  INTEGER,
+            land_value      INTEGER,
             last_sale_price INTEGER,
             last_sale_date  DATE,
             property_class  TEXT,
             owner_name      TEXT,
+            half_baths      REAL,
+            stories         REAL,
+            heating_type    TEXT,
+            garage_type     TEXT,
+            condition       TEXT,
+            grantor         TEXT,
+            grantee         TEXT,
+            deed_type       TEXT,
+            mls_number      TEXT,
+            listing_status  TEXT,
+            list_price      INTEGER,
+            close_price     INTEGER,
+            close_date      DATE,
+            days_on_market  INTEGER,
+            listing_date    DATE,
+            listing_remarks TEXT,
+            list_agent_name  TEXT,
+            list_office_name TEXT,
             created_at      TIMESTAMPTZ DEFAULT NOW(),
             updated_at      TIMESTAMPTZ DEFAULT NOW()
         );
+
+        -- Add new columns to existing databases (safe to run multiple times)
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS land_value      INTEGER;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS half_baths      REAL;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS stories         REAL;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS heating_type    TEXT;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS garage_type     TEXT;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS condition       TEXT;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS grantor         TEXT;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS grantee         TEXT;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS deed_type       TEXT;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS mls_number      TEXT;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS listing_status  TEXT;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS list_price      INTEGER;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS close_price     INTEGER;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS close_date      DATE;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS days_on_market  INTEGER;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS listing_date    DATE;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS listing_remarks TEXT;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS list_agent_name TEXT;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS list_office_name TEXT;
 
         CREATE TABLE IF NOT EXISTS leads (
             id          SERIAL PRIMARY KEY,
@@ -450,14 +603,24 @@ class Database:
             INSERT INTO properties (
                 address, slug, city, state, zip, parcel_id,
                 latitude, longitude, lot_size, square_feet,
-                beds, baths, year_built, assessed_value,
+                beds, baths, year_built, assessed_value, land_value,
                 last_sale_price, last_sale_date, property_class, owner_name,
+                half_baths, stories, heating_type, garage_type, condition,
+                grantor, grantee, deed_type,
+                mls_number, listing_status, list_price, close_price, close_date,
+                days_on_market, listing_date, listing_remarks,
+                list_agent_name, list_office_name,
                 updated_at
             ) VALUES (
                 %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
                 %s, %s, %s, %s,
-                %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s,
+                %s, %s,
                 NOW()
             )
             ON CONFLICT (slug) DO UPDATE SET
@@ -473,18 +636,43 @@ class Database:
                 baths = COALESCE(EXCLUDED.baths, properties.baths),
                 year_built = COALESCE(EXCLUDED.year_built, properties.year_built),
                 assessed_value = COALESCE(EXCLUDED.assessed_value, properties.assessed_value),
+                land_value = COALESCE(EXCLUDED.land_value, properties.land_value),
                 last_sale_price = COALESCE(EXCLUDED.last_sale_price, properties.last_sale_price),
                 last_sale_date = COALESCE(EXCLUDED.last_sale_date, properties.last_sale_date),
                 property_class = COALESCE(EXCLUDED.property_class, properties.property_class),
                 owner_name = COALESCE(EXCLUDED.owner_name, properties.owner_name),
+                half_baths = COALESCE(EXCLUDED.half_baths, properties.half_baths),
+                stories = COALESCE(EXCLUDED.stories, properties.stories),
+                heating_type = COALESCE(EXCLUDED.heating_type, properties.heating_type),
+                garage_type = COALESCE(EXCLUDED.garage_type, properties.garage_type),
+                condition = COALESCE(EXCLUDED.condition, properties.condition),
+                grantor = COALESCE(EXCLUDED.grantor, properties.grantor),
+                grantee = COALESCE(EXCLUDED.grantee, properties.grantee),
+                deed_type = COALESCE(EXCLUDED.deed_type, properties.deed_type),
+                mls_number = COALESCE(EXCLUDED.mls_number, properties.mls_number),
+                listing_status = COALESCE(EXCLUDED.listing_status, properties.listing_status),
+                list_price = COALESCE(EXCLUDED.list_price, properties.list_price),
+                close_price = COALESCE(EXCLUDED.close_price, properties.close_price),
+                close_date = COALESCE(EXCLUDED.close_date, properties.close_date),
+                days_on_market = COALESCE(EXCLUDED.days_on_market, properties.days_on_market),
+                listing_date = COALESCE(EXCLUDED.listing_date, properties.listing_date),
+                listing_remarks = COALESCE(EXCLUDED.listing_remarks, properties.listing_remarks),
+                list_agent_name = COALESCE(EXCLUDED.list_agent_name, properties.list_agent_name),
+                list_office_name = COALESCE(EXCLUDED.list_office_name, properties.list_office_name),
                 updated_at = NOW()
         """, (
             prop.address, prop.slug, prop.city, prop.state, prop.zip_code,
             prop.parcel_id or None,
             prop.latitude, prop.longitude, prop.lot_size, prop.square_feet,
-            prop.beds, prop.baths, prop.year_built, prop.assessed_value,
+            prop.beds, prop.baths, prop.year_built, prop.assessed_value, prop.land_value,
             prop.last_sale_price, prop.last_sale_date or None,
             prop.property_class, prop.owner_name,
+            prop.half_baths, prop.stories, prop.heating_type, prop.garage_type, prop.condition,
+            prop.grantor, prop.grantee, prop.deed_type,
+            prop.mls_number, prop.listing_status, prop.list_price, prop.close_price,
+            prop.close_date or None, prop.days_on_market, prop.listing_date or None,
+            prop.listing_remarks,
+            prop.list_agent_name, prop.list_office_name,
         ))
 
     def get_ungeocodeds(self, limit=500) -> List[Dict]:
@@ -1424,6 +1612,8 @@ class DataPuller:
                     self._pull_arcgis(source_name, source_config)
                 elif source_type == "portal_check":
                     self._check_portal(source_name, source_config)
+                elif source_type == "reso_api":
+                    self._pull_reso(source_name, source_config)
                 else:
                     logger.warning("[%s] Unknown type: %s", source_name, source_type)
 
@@ -2033,6 +2223,222 @@ class DataPuller:
                 return True
         return False
 
+    # ── RESO Web API (MLS / IDX) ──
+
+    def _pull_reso(self, source_name: str, config: dict):
+        """Pull listings from a RESO Web API (OData) endpoint.
+
+        Supports two auth modes:
+          • OAuth 2.0 client credentials: set MLS_CLIENT_ID + MLS_CLIENT_SECRET
+            + MLS_TOKEN_URL in the environment.
+          • Static bearer token: set MLS_ACCESS_TOKEN in the environment.
+
+        Incremental mode (config["incremental"] = True): on subsequent runs only
+        fetches records whose ModificationTimestamp is newer than the last pull,
+        stored in the manifest as "last_modified_ts".
+        """
+        if not MLS_API_URL:
+            logger.warning(
+                "[%s] MLS_API_URL not set — skipping. "
+                "Set MLS_API_URL (and MLS_CLIENT_ID/SECRET or MLS_ACCESS_TOKEN) "
+                "to enable this source.",
+                source_name,
+            )
+            return
+
+        token = self._reso_get_token(source_name)
+        if not token:
+            return
+
+        resource    = config.get("resource", "Property")
+        page_size   = config.get("page_size", 200)
+        filename    = config["filename"]
+        filepath    = os.path.join(RAW_DIR, filename)
+        incremental = config.get("incremental", True)
+
+        # Build the base $filter
+        filters = [config.get("filter", "")]
+        if config.get("status_filter"):
+            filters.append(config["status_filter"])
+
+        # Incremental: restrict to records modified since last pull
+        cached  = self.manifest.get(source_name)
+        last_ts = cached.get("last_modified_ts") if cached else None
+        if incremental and last_ts and not self.force:
+            filters.append(f"ModificationTimestamp gt {last_ts}")
+            logger.info("[%s] Incremental pull since %s", source_name, last_ts)
+        else:
+            logger.info("[%s] Full pull", source_name)
+
+        combined_filter = " and ".join(f for f in filters if f)
+
+        url     = f"{MLS_API_URL.rstrip('/')}/{resource}"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        }
+
+        all_records: List[dict] = []
+        skip          = 0
+        total_fetched = 0
+
+        while True:
+            params: Dict[str, Any] = {
+                "$top": page_size,
+                "$skip": skip,
+                "$orderby": "ModificationTimestamp asc",
+            }
+            if combined_filter:
+                params["$filter"] = combined_filter
+
+            try:
+                resp = requests.get(url, headers=headers, params=params, timeout=60)
+            except requests.RequestException as e:
+                logger.error("[%s] Request failed: %s", source_name, e)
+                break
+
+            if resp.status_code == 401:
+                logger.error(
+                    "[%s] 401 Unauthorized — check MLS credentials.", source_name
+                )
+                return
+            if resp.status_code == 403:
+                logger.error(
+                    "[%s] 403 Forbidden — your IDX agreement may not cover this resource.",
+                    source_name,
+                )
+                return
+            if not resp.ok:
+                logger.error("[%s] HTTP %d: %s", source_name, resp.status_code, resp.text[:200])
+                break
+
+            try:
+                data = resp.json()
+            except ValueError as e:
+                logger.error("[%s] JSON decode error: %s", source_name, e)
+                break
+
+            # RESO OData wraps results in "value"; some vendors use "d" or a bare list
+            records = (
+                data.get("value")
+                or data.get("d", {}).get("results")
+                or (data if isinstance(data, list) else [])
+            )
+
+            if not records:
+                break
+
+            all_records.extend(records)
+            total_fetched += len(records)
+            skip += len(records)
+
+            logger.info("[%s] Fetched %d records (total so far: %d)",
+                        source_name, len(records), total_fetched)
+
+            # Stop when we get fewer records than page_size (last page)
+            if len(records) < page_size:
+                break
+
+        if not all_records:
+            logger.info("[%s] No new records", source_name)
+            return
+
+        # Persist raw JSON so the manifest / cache system tracks it
+        os.makedirs(RAW_DIR, exist_ok=True)
+        if incremental and last_ts and os.path.exists(filepath) and not self.force:
+            # Merge with existing file — overwrite existing records by ListingKey
+            try:
+                with open(filepath, "r") as f:
+                    existing = json.load(f)
+                index = {r.get("ListingKey", r.get("ListingId", i)): r
+                         for i, r in enumerate(existing)}
+                for r in all_records:
+                    key = r.get("ListingKey", r.get("ListingId"))
+                    if key:
+                        index[key] = r
+                all_records = list(index.values())
+                logger.info("[%s] Merged to %d total records", source_name, len(all_records))
+            except Exception as e:
+                logger.warning("[%s] Could not merge with existing file: %s", source_name, e)
+
+        with open(filepath, "w") as f:
+            json.dump(all_records, f)
+        file_size     = os.path.getsize(filepath)
+        file_checksum = self.manifest.file_checksum(filepath)
+
+        # Track the newest ModificationTimestamp for the next incremental run
+        newest_ts = None
+        for r in all_records:
+            ts = r.get("ModificationTimestamp")
+            if ts and (newest_ts is None or ts > newest_ts):
+                newest_ts = ts
+
+        self.manifest.set(source_name, {
+            "source_name":      source_name,
+            "filepath":         filepath,
+            "filename":         filename,
+            "url":              url,
+            "downloaded_at":    datetime.now(timezone.utc).isoformat(),
+            "last_check_at":    datetime.now(timezone.utc).isoformat(),
+            "file_size":        file_size,
+            "file_checksum":    file_checksum,
+            "http_status":      200,
+            "record_count":     len(all_records),
+            "last_modified_ts": newest_ts,
+            "ingested":         False,
+        })
+
+        count = 0
+        for item in all_records:
+            raw = RawRecord(source=source_name, raw_data=item)
+            raw.compute_checksum()
+            self.db.store_raw_record(raw)
+            count += 1
+            if count % 1000 == 0:
+                self.db.conn.commit()
+        self.db.conn.commit()
+        self.manifest.mark_ingested(source_name)
+        logger.info("[%s] Ingested %d MLS records", source_name, count)
+
+    def _reso_get_token(self, source_name: str) -> Optional[str]:
+        """Return a bearer token for RESO API auth.
+
+        Tries in order:
+          1. Static MLS_ACCESS_TOKEN env var
+          2. OAuth 2.0 client_credentials flow using MLS_CLIENT_ID/SECRET/TOKEN_URL
+        """
+        if MLS_ACCESS_TOKEN:
+            return MLS_ACCESS_TOKEN
+
+        if MLS_CLIENT_ID and MLS_CLIENT_SECRET and MLS_TOKEN_URL:
+            try:
+                resp = requests.post(
+                    MLS_TOKEN_URL,
+                    data={
+                        "grant_type":    "client_credentials",
+                        "client_id":     MLS_CLIENT_ID,
+                        "client_secret": MLS_CLIENT_SECRET,
+                        "scope":         "api",
+                    },
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                token = resp.json().get("access_token")
+                if token:
+                    logger.info("[%s] OAuth token acquired", source_name)
+                    return token
+                logger.error("[%s] OAuth response had no access_token", source_name)
+            except Exception as e:
+                logger.error("[%s] OAuth token request failed: %s", source_name, e)
+            return None
+
+        logger.warning(
+            "[%s] No MLS credentials configured. "
+            "Set MLS_ACCESS_TOKEN or MLS_CLIENT_ID + MLS_CLIENT_SECRET + MLS_TOKEN_URL.",
+            source_name,
+        )
+        return None
+
     def _try_discover_dataset(self, source_name: str):
         logger.info("[%s] Searching for alternative datasets...", source_name)
         queries = {
@@ -2091,39 +2497,49 @@ class PropertyNormalizer:
             "address", "property_address", "street_address", "location",
             "prop_addr", "situs_address", "full_address", "street",
             "print_key_address",
+            # RESO / MLS full-address fields
+            "UnparsedAddress", "StreetAddress", "unparsed_address",
             # 7vem-aaz7 uses split fields — handled specially in _build_address()
         ],
         "city": [
             "city", "municipality_name", "municipality", "town",
             "muni_name", "village", "hamlet", "locality",
             "mailing_address_city",
+            # RESO
+            "City", "PostOfficeCity",
         ],
         "zip_code": [
             "zip", "zip_code", "zipcode", "postal_code", "zip5",
             "mailing_address_zip",
+            # RESO
+            "PostalCode", "Zip",
         ],
         "parcel_id": [
             "print_key_code", "parcel_id", "parcel", "tax_map",
             "print_key", "sbl", "swis_sbl", "parcel_number", "pin", "apn",
+            "section_block_lot", "tax_map_id", "tax_map_number",
         ],
         "square_feet": [
             "square_feet", "sqft", "sq_ft", "living_area",
             "total_living_area", "gross_living_area", "building_area",
+            "gross_sqft", "gla", "total_sqft", "floor_area",
+            "finished_sqft", "above_grade_sqft",
         ],
         "lot_size": [
             "lot_size", "lot_area", "land_area", "acres", "lot_acres",
-            "land_sqft",
+            "land_sqft", "lot_size_sf", "land_sf",
         ],
         "beds": [
             "beds", "bedrooms", "bed", "num_bedrooms", "total_bedrooms",
+            "nbr_bedrooms", "number_of_bedrooms",
         ],
         "baths": [
             "baths", "bathrooms", "bath", "full_baths", "total_baths",
-            "num_baths",
+            "num_baths", "nbr_full_baths", "full_bathrooms",
         ],
         "year_built": [
             "year_built", "yr_built", "year_constructed", "built_year",
-            "effective_year",
+            "effective_year", "yr_blt", "year_erected",
             # NOTE: "roll_year" is NOT year_built — it's the tax year
         ],
         "assessed_value": [
@@ -2131,16 +2547,22 @@ class PropertyNormalizer:
             "full_market_value", "assessed_total",
             "total_assessed_value", "assessment", "full_mkt_val",
         ],
+        "land_value": [
+            "land_value", "land_av", "land_assessed", "land_assessment",
+            "assessed_land", "land_total",
+        ],
         "market_value": [
             "full_market_value", "market_value", "estimated_value",
         ],
         "last_sale_price": [
             "sale_price", "last_sale_price", "sold_price", "price",
-            "sale_amount",
+            "sale_amount", "consideration", "transfer_price",
+            "deed_price",
         ],
         "last_sale_date": [
             "sale_date", "last_sale_date", "sold_date", "date_of_sale",
-            "deed_date",
+            "deed_date", "transfer_date", "recorded_date",
+            "instrument_date",
         ],
         "property_class": [
             "property_class", "prop_class", "class_code", "use_code",
@@ -2154,6 +2576,79 @@ class PropertyNormalizer:
             "owner", "owner_name", "owner_1", "primary_owner",
             "owner_name_1",
             # 7vem-aaz7 uses split fields — handled specially in _build_owner()
+        ],
+        "half_baths": [
+            "half_baths", "half_bathrooms", "nbr_half_baths",
+            "half_bath", "hbaths",
+        ],
+        "stories": [
+            "stories", "num_stories", "nbr_stories", "story_height",
+            "number_of_stories", "floors",
+        ],
+        "heating_type": [
+            "heating_type", "heat_type", "heat_system", "heating",
+            "heat_fuel", "heat_fuel_type",
+        ],
+        "garage_type": [
+            "garage_type", "garage", "garage_cap", "garage_capacity",
+            "garage_style", "parking_type",
+        ],
+        "condition": [
+            "condition", "overall_condition", "phys_condition",
+            "physical_condition", "building_condition",
+        ],
+        "grantor": [
+            "grantor", "seller", "seller_name", "grantor_name",
+            "from_name", "transferor",
+        ],
+        "grantee": [
+            "grantee", "buyer", "buyer_name", "grantee_name",
+            "to_name", "transferee",
+        ],
+        "deed_type": [
+            "deed_type", "instrument_type", "document_type",
+            "transfer_type", "deed_class",
+        ],
+        # ── MLS / RESO Web API fields ──
+        "mls_number": [
+            "ListingId", "ListingKey", "MLSNumber", "MlsNumber",
+            "mls_number", "listing_id", "listing_key",
+        ],
+        "listing_status": [
+            "StandardStatus", "MlsStatus", "ListingStatus",
+            "standard_status", "listing_status",
+        ],
+        "list_price": [
+            "ListPrice", "CurrentPrice", "AskingPrice",
+            "list_price", "asking_price",
+        ],
+        "close_price": [
+            "ClosePrice", "SoldPrice", "SalePrice",
+            "close_price", "sold_price",
+        ],
+        "close_date": [
+            "CloseDate", "SoldDate", "SettlementDate",
+            "close_date", "sold_date",
+        ],
+        "days_on_market": [
+            "DaysOnMarket", "CumulativeDaysOnMarket",
+            "days_on_market", "dom",
+        ],
+        "listing_date": [
+            "ListingContractDate", "OnMarketDate", "ListDate",
+            "listing_date", "list_date",
+        ],
+        "listing_remarks": [
+            "PublicRemarks", "Remarks", "Description",
+            "public_remarks", "listing_remarks",
+        ],
+        "list_agent_name": [
+            "ListAgentFullName", "ListAgentName", "AgentName",
+            "list_agent_full_name", "list_agent_name",
+        ],
+        "list_office_name": [
+            "ListOfficeName", "OfficeName", "BrokerageName",
+            "list_office_name", "office_name",
         ],
         "latitude": [
             "latitude", "lat", "y", "_latitude",
@@ -2184,6 +2679,7 @@ class PropertyNormalizer:
         total_stored = 0
         total_skipped = 0
 
+        self.db.ensure_connected()
         while True:
             rows = self.db.fetch_all("""
                 SELECT id, source, raw_data
