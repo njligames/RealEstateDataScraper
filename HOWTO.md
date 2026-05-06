@@ -135,7 +135,8 @@ Before a listing appointment, pull everything you have on the property:
 
 ```
 psql $DATABASE_URL -c "
-SELECT address, assessed_value, full_market_value, lot_size, property_class
+SELECT address || ', ' || city || ', ' || state || ' ' || zip AS full_address,
+       assessed_value, full_market_value, lot_size, property_class
 FROM properties
 WHERE latitude BETWEEN 40.76 AND 40.78
   AND longitude BETWEEN -73.02 AND -73.00
