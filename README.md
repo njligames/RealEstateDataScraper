@@ -8,8 +8,10 @@ Pull public property data from New York State sources, normalize addresses, dedu
     find_sources.py      Search for working dataset URLs
     setup_sources.py     Inspect datasets and find correct filters
     debug_sources.py     Diagnose empty data issues
+    analyze_farm.py      Rank zipcodes by farm attractiveness
     requirements.txt     Python dependencies
     .env.sample          Template for environment variables
+    farm.md              Guide to choosing and working a farm area
     data/                Downloaded files and cache (created automatically)
 
 ## Prerequisites
@@ -258,6 +260,40 @@ Commands can be combined:
     python pipeline.py --init --pull --force
     python pipeline.py --geocode --serve
 
+## Farm Analysis
+
+`analyze_farm.py` ranks every Brookhaven zipcode by how attractive it is to
+farm as a listing agent. It calculates turnover rate, average and median sale
+price, days on market, competing agent count, and a Commission Opportunity
+Score that combines all of those into a single number.
+
+    python analyze_farm.py                     Analyze all zips, save to farm_analysis.csv
+    python analyze_farm.py --months 24         Use a 24-month lookback window
+    python analyze_farm.py --out report.csv    Custom output filename
+    python analyze_farm.py --min-homes 200     Skip zips with fewer than 200 properties
+
+The script prints a ranked table to the terminal and saves a CSV with all
+metrics. Days on market and agent competition columns are populated once MLS
+data is connected; the score degrades gracefully until then.
+
+See farm.md for a full explanation of the metrics and how to use the results.
+
+## Exporting to CSV
+
+After running --pull, you can export the downloaded assessment data as a flat
+CSV file. This is useful as a portable backup or to activate the local_csv
+fallback source.
+
+    python pipeline.py --export-csv
+
+The default output path is data/raw/brookhaven_parcels.csv. To write
+somewhere else:
+
+    python pipeline.py --export-csv --export-csv-path /path/to/output.csv
+
+--export-csv reads from the already-cached nys_assessment.json so it does
+not make any additional API calls.
+
 ## Download Caching
 
 Downloads are tracked in data/download_manifest.json. Cached files are
@@ -267,6 +303,8 @@ avoid re-downloading unchanged data. File checksums detect corruption.
     python pipeline.py --status
     python pipeline.py --clean-cache
     python pipeline.py --clean-cache-source nys_assessment
+    python pipeline.py --export-csv
+    python pipeline.py --export-csv --export-csv-path /tmp/parcels.csv
 
 ## API Endpoints
 

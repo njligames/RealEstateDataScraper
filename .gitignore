@@ -1,3 +1,5 @@
 .venv
 data/
 .DS_Store
+farm_analysis.csv
+.env

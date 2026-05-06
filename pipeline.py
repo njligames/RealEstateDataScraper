@@ -382,6 +382,7 @@ class CleanProperty:
     baths: Optional[float] = None
     year_built: Optional[int] = None
     assessed_value: Optional[int] = None
+    full_market_value: Optional[int] = None
     land_value: Optional[int] = None
     last_sale_price: Optional[int] = None
     last_sale_date: Optional[str] = None
@@ -484,8 +485,9 @@ class Database:
             beds            INTEGER,
             baths           REAL,
             year_built      INTEGER,
-            assessed_value  INTEGER,
-            land_value      INTEGER,
+            assessed_value    INTEGER,
+            full_market_value INTEGER,
+            land_value        INTEGER,
             last_sale_price INTEGER,
             last_sale_date  DATE,
             property_class  TEXT,
@@ -513,7 +515,8 @@ class Database:
         );
 
         -- Add new columns to existing databases (safe to run multiple times)
-        ALTER TABLE properties ADD COLUMN IF NOT EXISTS land_value      INTEGER;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS full_market_value INTEGER;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS land_value        INTEGER;
         ALTER TABLE properties ADD COLUMN IF NOT EXISTS half_baths      REAL;
         ALTER TABLE properties ADD COLUMN IF NOT EXISTS stories         REAL;
         ALTER TABLE properties ADD COLUMN IF NOT EXISTS heating_type    TEXT;
@@ -603,7 +606,7 @@ class Database:
             INSERT INTO properties (
                 address, slug, city, state, zip, parcel_id,
                 latitude, longitude, lot_size, square_feet,
-                beds, baths, year_built, assessed_value, land_value,
+                beds, baths, year_built, assessed_value, full_market_value, land_value,
                 last_sale_price, last_sale_date, property_class, owner_name,
                 half_baths, stories, heating_type, garage_type, condition,
                 grantor, grantee, deed_type,
@@ -616,7 +619,7 @@ class Database:
                 %s, %s, %s, %s,
                 %s, %s, %s, %s, %s,
                 %s, %s, %s, %s,
-                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s,
                 %s, %s, %s,
                 %s, %s, %s, %s, %s,
                 %s, %s, %s,
@@ -636,6 +639,7 @@ class Database:
                 baths = COALESCE(EXCLUDED.baths, properties.baths),
                 year_built = COALESCE(EXCLUDED.year_built, properties.year_built),
                 assessed_value = COALESCE(EXCLUDED.assessed_value, properties.assessed_value),
+                full_market_value = COALESCE(EXCLUDED.full_market_value, properties.full_market_value),
                 land_value = COALESCE(EXCLUDED.land_value, properties.land_value),
                 last_sale_price = COALESCE(EXCLUDED.last_sale_price, properties.last_sale_price),
                 last_sale_date = COALESCE(EXCLUDED.last_sale_date, properties.last_sale_date),
@@ -664,7 +668,7 @@ class Database:
             prop.address, prop.slug, prop.city, prop.state, prop.zip_code,
             prop.parcel_id or None,
             prop.latitude, prop.longitude, prop.lot_size, prop.square_feet,
-            prop.beds, prop.baths, prop.year_built, prop.assessed_value, prop.land_value,
+            prop.beds, prop.baths, prop.year_built, prop.assessed_value, prop.full_market_value, prop.land_value,
             prop.last_sale_price, prop.last_sale_date or None,
             prop.property_class, prop.owner_name,
             prop.half_baths, prop.stories, prop.heating_type, prop.garage_type, prop.condition,
@@ -2544,15 +2548,15 @@ class PropertyNormalizer:
         ],
         "assessed_value": [
             "assessment_total", "assessed_value", "total_av",
-            "full_market_value", "assessed_total",
-            "total_assessed_value", "assessment", "full_mkt_val",
+            "assessed_total", "total_assessed_value", "assessment",
+        ],
+        "full_market_value": [
+            "full_market_value", "full_mkt_val", "market_value",
+            "estimated_value", "equalized_value",
         ],
         "land_value": [
             "land_value", "land_av", "land_assessed", "land_assessment",
             "assessed_land", "land_total",
-        ],
-        "market_value": [
-            "full_market_value", "market_value", "estimated_value",
         ],
         "last_sale_price": [
             "sale_price", "last_sale_price", "sold_price", "price",
@@ -2754,9 +2758,9 @@ class PropertyNormalizer:
             else:
                 prop_class_full = prop_class or prop_class_desc
 
-            # Get assessed and market values
+            # Get assessed and market values (these are distinct in NY)
             assessed = self._safe_int(self._find_field(raw, "assessed_value"))
-            market = self._safe_int(self._find_field(raw, "market_value"))
+            market   = self._safe_int(self._find_field(raw, "full_market_value"))
 
             # Calculate lot dimensions if we have front and depth
             lot_size = self._safe_float(self._find_field(raw, "lot_size"))
@@ -2792,7 +2796,8 @@ class PropertyNormalizer:
                 beds=self._safe_int(self._find_field(raw, "beds")),
                 baths=self._safe_float(self._find_field(raw, "baths")),
                 year_built=self._safe_int(self._find_field(raw, "year_built")),
-                assessed_value=assessed or market,  # Use market value as fallback
+                assessed_value=assessed,
+                full_market_value=market,
                 last_sale_price=self._safe_int(self._find_field(raw, "last_sale_price")),
                 last_sale_date=self._safe_date(self._find_field(raw, "last_sale_date")),
                 property_class=prop_class_full or None,
@@ -3343,6 +3348,8 @@ Examples:
     python pipeline.py --clean-cache             Remove all cached downloads
     python pipeline.py --verify                  Verify all data source URLs
     python pipeline.py --discover                Search NY Open Data for datasets
+    python pipeline.py --export-csv              Export assessment data to CSV (requires --pull first)
+    python pipeline.py --export-csv --export-csv-path /tmp/parcels.csv   Custom output path
         """
     )
 
@@ -3379,6 +3386,11 @@ Examples:
     parser.add_argument("--discover-query", type=str,
                         default="real property suffolk",
                         help="Search query for dataset discovery (default: 'real property suffolk')")
+    parser.add_argument("--export-csv", action="store_true",
+                        help="Export downloaded assessment data to a CSV file")
+    parser.add_argument("--export-csv-path", type=str,
+                        default=os.path.join(RAW_DIR, "brookhaven_parcels.csv"),
+                        help="Output path for --export-csv (default: data/raw/brookhaven_parcels.csv)")
 
     args = parser.parse_args()
 
@@ -3402,6 +3414,10 @@ Examples:
 
     if args.discover:
         discover_datasets(args.discover_query)
+        return
+
+    if args.export_csv:
+        export_csv(args.export_csv_path)
         return
 
     # ── Commands that need a database connection ──
@@ -3440,6 +3456,48 @@ Examples:
 
     finally:
         db.close()
+
+
+# ──────────────────────────────────────────────
+# Export CSV Command
+# ──────────────────────────────────────────────
+
+def export_csv(output_path: str):
+    """Export the cached nys_assessment JSON download to a flat CSV file.
+
+    Reads data/raw/nys_assessment.json (produced by --pull) and writes it as
+    a CSV to output_path. Useful as a portable backup or to activate the
+    local_csv fallback source (brookhaven_parcels.csv).
+
+    Run --pull first if the JSON file doesn't exist yet.
+    """
+    source_name = "nys_assessment"
+    json_path   = os.path.join(RAW_DIR, DATA_SOURCES[source_name]["filename"])
+
+    if not os.path.exists(json_path):
+        print(f"\nSource file not found: {json_path}")
+        print("Run  python pipeline.py --pull  first to download the data, then re-run --export-csv.\n")
+        return
+
+    print(f"\nReading {json_path} ...")
+    with open(json_path, "r") as f:
+        records = json.load(f)
+
+    if not records:
+        print("Source file is empty — nothing to export.")
+        return
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    df = pd.DataFrame(records)
+
+    # Normalise column names to lowercase with underscores (matches _ingest_csv behaviour)
+    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+
+    df.to_csv(output_path, index=False)
+
+    file_size = os.path.getsize(output_path)
+    print(f"Exported {len(df):,} records → {output_path}  ({file_size:,} bytes)\n")
 
 
 # ──────────────────────────────────────────────

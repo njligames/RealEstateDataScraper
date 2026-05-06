@@ -10,9 +10,9 @@ The dataset gives you every property owner's name and mailing address in Brookha
 psql $DATABASE_URL -c "
 SELECT address, city, zip, owner_name, full_market_value, assessed_value
 FROM properties
-WHERE assessed_value > 400000
-ORDER BY assessed_value DESC
-LIMIT 100
+WHERE full_market_value > 400000
+ORDER BY full_market_value DESC
+LIMIT 100;
 "
 ```
 
@@ -37,7 +37,15 @@ SELECT p.address, p.city, p.zip, p.owner_name, p.assessed_value,
 FROM properties p
 JOIN raw_records r ON r.raw_data->>'print_key_code' = p.parcel_id
 WHERE r.raw_data->>'mailing_address_state' != 'NY'
-   OR r.raw_data->>'mailing_address_city' NOT IN ('Patchogue','Medford','Shirley','Mastic','Centereach','Selden','Coram')
+   OR UPPER(r.raw_data->>'mailing_address_city') NOT IN (
+     'PATCHOGUE','EAST PATCHOGUE','NORTH PATCHOGUE',
+     'MEDFORD','SHIRLEY','MASTIC','MASTIC BEACH',
+     'CENTEREACH','SELDEN','FARMINGVILLE','CORAM',
+     'BELLPORT','PORT JEFFERSON','PORT JEFFERSON STATION',
+     'MOUNT SINAI','MILLER PLACE','ROCKY POINT','RIDGE',
+     'MIDDLE ISLAND','YAPHANK','HOLTSVILLE',
+     'LAKE GROVE','STONY BROOK','SETAUKET','EAST SETAUKET'
+   )
 LIMIT 100
 "
 ```
