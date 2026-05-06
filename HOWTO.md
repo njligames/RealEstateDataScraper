@@ -168,14 +168,41 @@ These multi-property owners are high-value contacts. They trade properties frequ
 
 ### Identifying Development Opportunities
 
-Find large vacant lots in desirable areas:
+Find large vacant lots in desirable areas. First, check what property class codes are actually in your data:
 
 ```
 psql $DATABASE_URL -c "
-SELECT address, city, zip, owner_name, lot_size, full_market_value
+SELECT property_class, COUNT(*)
+FROM properties
+WHERE property_class IS NOT NULL
+GROUP BY property_class
+ORDER BY property_class
+LIMIT 30
+"
+```
+
+NY State uses 300-series codes for vacant land (300 = vacant, 311 = residential vacant, 312 = residential land with minor improvements, 320 = rural vacant, 330 = vacant commercial, 340 = vacant industrial). Once you confirm which codes exist in your data, pull the vacant lots:
+
+```
+psql $DATABASE_URL -c "
+SELECT address || ', ' || city || ', ' || state || ' ' || zip AS full_address,
+       owner_name, property_class, full_market_value, assessed_value
 FROM properties
 WHERE property_class LIKE '3%'
-  AND lot_size > 10000
+ORDER BY full_market_value DESC
+LIMIT 50
+"
+```
+
+Once the FOIL assessor data is loaded, `lot_size` will be populated and you can filter by acreage:
+
+```
+psql $DATABASE_URL -c "
+SELECT address || ', ' || city || ', ' || state || ' ' || zip AS full_address,
+       owner_name, property_class, lot_size, full_market_value
+FROM properties
+WHERE property_class LIKE '3%'
+  AND lot_size IS NOT NULL
 ORDER BY lot_size DESC
 LIMIT 50
 "
