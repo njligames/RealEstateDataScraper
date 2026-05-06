@@ -32,22 +32,39 @@ ORDER BY full_market_value DESC
 ```
 psql $DATABASE_URL -c "
 SELECT p.address, p.city, p.zip, p.owner_name, p.assessed_value,
-       r.raw_data->>'mailing_address_city' as mail_city,
-       r.raw_data->>'mailing_address_state' as mail_state
+       r.raw_data->>'mailing_address_city'  AS mail_city,
+       r.raw_data->>'mailing_address_state' AS mail_state,
+       r.raw_data->>'mailing_address_zip'   AS mail_zip
 FROM properties p
 JOIN raw_records r ON r.raw_data->>'print_key_code' = p.parcel_id
-WHERE r.raw_data->>'mailing_address_state' != 'NY'
-   OR UPPER(r.raw_data->>'mailing_address_city') NOT IN (
-     'PATCHOGUE','EAST PATCHOGUE','NORTH PATCHOGUE',
-     'MEDFORD','SHIRLEY','MASTIC','MASTIC BEACH',
-     'CENTEREACH','SELDEN','FARMINGVILLE','CORAM',
-     'BELLPORT','PORT JEFFERSON','PORT JEFFERSON STATION',
-     'MOUNT SINAI','MILLER PLACE','ROCKY POINT','RIDGE',
-     'MIDDLE ISLAND','YAPHANK','HOLTSVILLE',
-     'SHOREHAM','PORT JEFF STA','MT SINAI',
-     'PORT JEFFERSON STATI','PORT JEFF STATION','TERRYVILLE',
-     'LAKE GROVE','STONY BROOK','SETAUKET','EAST SETAUKET'
-   )
+WHERE (
+  -- out-of-state owner
+  r.raw_data->>'mailing_address_state' != 'NY'
+  OR
+  -- in-state but mailing zip differs from property zip (preferred check)
+  (
+    r.raw_data->>'mailing_address_zip' IS NOT NULL
+    AND r.raw_data->>'mailing_address_zip' != ''
+    AND LEFT(r.raw_data->>'mailing_address_zip', 5) != p.zip
+  )
+  OR
+  -- zip data missing: fall back to city name check
+  (
+    (r.raw_data->>'mailing_address_zip' IS NULL OR r.raw_data->>'mailing_address_zip' = '')
+    AND UPPER(r.raw_data->>'mailing_address_city') NOT IN (
+      'PATCHOGUE','EAST PATCHOGUE','NORTH PATCHOGUE',
+      'MEDFORD','SHIRLEY','MASTIC','MASTIC BEACH',
+      'CENTEREACH','SELDEN','FARMINGVILLE','CORAM',
+      'BELLPORT','PORT JEFFERSON','PORT JEFFERSON STATION',
+      'MOUNT SINAI','MILLER PLACE','ROCKY POINT','RIDGE',
+      'MIDDLE ISLAND','YAPHANK','HOLTSVILLE',
+      'SHOREHAM','PORT JEFF STA','MT SINAI',
+      'PORT JEFFERSON STATI','PORT JEFF STATION','TERRYVILLE',
+      'LAKE GROVE','STONY BROOK','SETAUKET','EAST SETAUKET'
+    )
+  )
+)
+ORDER BY p.zip, p.address
 LIMIT 100
 "
 ```
