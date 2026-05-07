@@ -122,29 +122,44 @@ Segment your mailings by owner type for better response rates.
 
 High equity owners — likely bought 15+ years ago, sitting on large gains:
 
+    psql $DATABASE_URL -c "
     SELECT address, city, zip, owner_name, full_market_value, assessed_value
     FROM properties
     WHERE zip = '11772'
       AND assessed_value > 400000
     ORDER BY assessed_value DESC;
+    "
 
-Absentee owners — mailing address city differs from property location:
+Absentee owners — mailing address zip or state differs from property location:
 
+    psql $DATABASE_URL -c "
     SELECT p.address, p.city, p.zip, p.owner_name, p.assessed_value,
-           r.raw_data->>'mailing_address_city' AS mail_city,
-           r.raw_data->>'mailing_address_state' AS mail_state
+           r.raw_data->>'mailing_address_city'  AS mail_city,
+           r.raw_data->>'mailing_address_state' AS mail_state,
+           r.raw_data->>'mailing_address_zip'   AS mail_zip
     FROM properties p
     JOIN raw_records r ON r.raw_data->>'print_key_code' = p.parcel_id
     WHERE p.zip = '11772'
-      AND r.raw_data->>'mailing_address_state' != 'NY';
+      AND (
+        r.raw_data->>'mailing_address_state' != 'NY'
+        OR (
+          r.raw_data->>'mailing_address_zip' IS NOT NULL
+          AND r.raw_data->>'mailing_address_zip' != ''
+          AND LEFT(r.raw_data->>'mailing_address_zip', 5) != p.zip
+        )
+      )
+    ORDER BY p.address;
+    "
 
 Multi-family and investor owners:
 
+    psql $DATABASE_URL -c "
     SELECT address, city, zip, owner_name, assessed_value, property_class
     FROM properties
     WHERE zip = '11772'
       AND property_class IN ('220', '230', '240', '280')
     ORDER BY assessed_value DESC;
+    "
 
 ### Market Update Postcards
 
@@ -152,6 +167,7 @@ Pull area statistics monthly and send a postcard to every homeowner in the
 zip. Quote the average assessed value, total homes, and how many sold
 recently. Homeowners respond to local numbers about their own neighborhood.
 
+    psql $DATABASE_URL -c "
     SELECT
         COUNT(*)                              AS total_properties,
         ROUND(AVG(assessed_value))            AS avg_assessed,
@@ -162,24 +178,29 @@ recently. Homeowners respond to local numbers about their own neighborhood.
     FROM properties
     WHERE zip = '11772'
       AND assessed_value > 0;
+    "
 
 ### Pre-Listing Research
 
 Before any listing appointment, pull full details on the property and its
 neighbors for a quick comparable analysis:
 
-    SELECT address, assessed_value, full_market_value, lot_size, property_class
+    psql $DATABASE_URL -c "
+    SELECT address || ', ' || city || ', ' || state || ' ' || zip AS full_address,
+           assessed_value, full_market_value, lot_size, property_class
     FROM properties
     WHERE latitude  BETWEEN 40.76 AND 40.78
       AND longitude BETWEEN -73.02 AND -73.00
     ORDER BY full_market_value DESC
     LIMIT 20;
+    "
 
 ### Multi-Property Owners
 
 Owners with multiple properties are active investors. They trade frequently,
 know the market, and often work with one agent for all transactions:
 
+    psql $DATABASE_URL -c "
     SELECT owner_name, COUNT(*) AS properties, SUM(assessed_value) AS total_value
     FROM properties
     WHERE zip = '11772'
@@ -188,6 +209,7 @@ know the market, and often work with one agent for all transactions:
     HAVING COUNT(*) > 2
     ORDER BY COUNT(*) DESC
     LIMIT 30;
+    "
 
 ---
 
