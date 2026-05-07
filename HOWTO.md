@@ -33,7 +33,7 @@ ORDER BY full_market_value DESC
 psql $DATABASE_URL -c "
 SELECT * FROM (
   SELECT DISTINCT ON (p.address)
-         p.address, p.city, p.zip, p.owner_name,
+         p.parcel_id, p.address, p.city, p.zip, p.owner_name,
          p.assessed_value, p.full_market_value,
          TRIM(
            COALESCE(r.raw_data->>'mailing_address_number', '') || ' ' ||
