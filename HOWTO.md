@@ -34,9 +34,15 @@ psql $DATABASE_URL -c "
 SELECT DISTINCT ON (p.address)
        p.address, p.city, p.zip, p.owner_name,
        p.assessed_value, p.full_market_value,
-       r.raw_data->>'mailing_address_city'  AS mail_city,
-       r.raw_data->>'mailing_address_state' AS mail_state,
-       r.raw_data->>'mailing_address_zip'   AS mail_zip
+       TRIM(
+         COALESCE(r.raw_data->>'mailing_address_number', '') || ' ' ||
+         COALESCE(r.raw_data->>'mailing_address_street', '') || ' ' ||
+         COALESCE(r.raw_data->>'mailing_address_suff', '')
+       ) || ', ' ||
+       COALESCE(r.raw_data->>'mailing_address_city', '') || ', ' ||
+       COALESCE(r.raw_data->>'mailing_address_state', '') || ' ' ||
+       COALESCE(LEFT(r.raw_data->>'mailing_address_zip', 5), '')
+       AS mail_address
 FROM properties p
 JOIN raw_records r ON r.raw_data->>'print_key_code' = p.parcel_id
 WHERE (
