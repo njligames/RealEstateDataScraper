@@ -34,7 +34,7 @@ psql $DATABASE_URL -c "
 SELECT * FROM (
   SELECT DISTINCT ON (p.address)
          p.parcel_id, p.address, p.city, p.zip, p.owner_name,
-         p.assessed_value, p.full_market_value,
+         p.assessed_value, p.full_market_value, p.property_class,
          TRIM(
            COALESCE(r.raw_data->>'mailing_address_number', '') || ' ' ||
            COALESCE(r.raw_data->>'mailing_address_street', '') || ' ' ||
