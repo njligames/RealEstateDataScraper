@@ -133,7 +133,8 @@ High equity owners — likely bought 15+ years ago, sitting on large gains:
 Absentee owners — mailing address zip or state differs from property location:
 
     psql $DATABASE_URL -c "
-    SELECT p.address, p.city, p.zip, p.owner_name,
+    SELECT DISTINCT ON (p.address)
+           p.address, p.city, p.zip, p.owner_name,
            p.assessed_value, p.full_market_value,
            r.raw_data->>'mailing_address_city'  AS mail_city,
            r.raw_data->>'mailing_address_state' AS mail_state,

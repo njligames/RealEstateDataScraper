@@ -31,7 +31,9 @@ ORDER BY full_market_value DESC
 
 ```
 psql $DATABASE_URL -c "
-SELECT p.address, p.city, p.zip, p.owner_name, p.assessed_value,
+SELECT DISTINCT ON (p.address)
+       p.address, p.city, p.zip, p.owner_name,
+       p.assessed_value, p.full_market_value,
        r.raw_data->>'mailing_address_city'  AS mail_city,
        r.raw_data->>'mailing_address_state' AS mail_state,
        r.raw_data->>'mailing_address_zip'   AS mail_zip
