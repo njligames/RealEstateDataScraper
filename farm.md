@@ -133,30 +133,33 @@ High equity owners — likely bought 15+ years ago, sitting on large gains:
 Absentee owners — mailing address zip or state differs from property location:
 
     psql $DATABASE_URL -c "
-    SELECT DISTINCT ON (p.address)
-           p.address, p.city, p.zip, p.owner_name,
-           p.assessed_value, p.full_market_value,
-           TRIM(
-             COALESCE(r.raw_data->>'mailing_address_number', '') || ' ' ||
-             COALESCE(r.raw_data->>'mailing_address_street', '') || ' ' ||
-             COALESCE(r.raw_data->>'mailing_address_suff', '')
-           ) || ', ' ||
-           COALESCE(r.raw_data->>'mailing_address_city', '') || ', ' ||
-           COALESCE(r.raw_data->>'mailing_address_state', '') || ' ' ||
-           COALESCE(LEFT(r.raw_data->>'mailing_address_zip', 5), '')
-           AS mail_address
-    FROM properties p
-    JOIN raw_records r ON r.raw_data->>'print_key_code' = p.parcel_id
-    WHERE p.zip = '11772'
-      AND (
-        r.raw_data->>'mailing_address_state' != 'NY'
-        OR (
-          r.raw_data->>'mailing_address_zip' IS NOT NULL
-          AND r.raw_data->>'mailing_address_zip' != ''
-          AND LEFT(r.raw_data->>'mailing_address_zip', 5) != p.zip
+    SELECT * FROM (
+      SELECT DISTINCT ON (p.address)
+             p.address, p.city, p.zip, p.owner_name,
+             p.assessed_value, p.full_market_value,
+             TRIM(
+               COALESCE(r.raw_data->>'mailing_address_number', '') || ' ' ||
+               COALESCE(r.raw_data->>'mailing_address_street', '') || ' ' ||
+               COALESCE(r.raw_data->>'mailing_address_suff', '')
+             ) || ', ' ||
+             COALESCE(r.raw_data->>'mailing_address_city', '') || ', ' ||
+             COALESCE(r.raw_data->>'mailing_address_state', '') || ' ' ||
+             COALESCE(LEFT(r.raw_data->>'mailing_address_zip', 5), '')
+             AS mail_address
+      FROM properties p
+      JOIN raw_records r ON r.raw_data->>'print_key_code' = p.parcel_id
+      WHERE p.zip = '11772'
+        AND (
+          r.raw_data->>'mailing_address_state' != 'NY'
+          OR (
+            r.raw_data->>'mailing_address_zip' IS NOT NULL
+            AND r.raw_data->>'mailing_address_zip' != ''
+            AND LEFT(r.raw_data->>'mailing_address_zip', 5) != p.zip
+          )
         )
-      )
-    ORDER BY p.address;
+      ORDER BY p.address
+    ) sub
+    ORDER BY full_market_value DESC NULLS LAST;
     "
 
 Multi-family and investor owners:

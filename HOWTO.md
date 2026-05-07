@@ -31,48 +31,51 @@ ORDER BY full_market_value DESC
 
 ```
 psql $DATABASE_URL -c "
-SELECT DISTINCT ON (p.address)
-       p.address, p.city, p.zip, p.owner_name,
-       p.assessed_value, p.full_market_value,
-       TRIM(
-         COALESCE(r.raw_data->>'mailing_address_number', '') || ' ' ||
-         COALESCE(r.raw_data->>'mailing_address_street', '') || ' ' ||
-         COALESCE(r.raw_data->>'mailing_address_suff', '')
-       ) || ', ' ||
-       COALESCE(r.raw_data->>'mailing_address_city', '') || ', ' ||
-       COALESCE(r.raw_data->>'mailing_address_state', '') || ' ' ||
-       COALESCE(LEFT(r.raw_data->>'mailing_address_zip', 5), '')
-       AS mail_address
-FROM properties p
-JOIN raw_records r ON r.raw_data->>'print_key_code' = p.parcel_id
-WHERE (
-  -- out-of-state owner
-  r.raw_data->>'mailing_address_state' != 'NY'
-  OR
-  -- in-state but mailing zip differs from property zip (preferred check)
-  (
-    r.raw_data->>'mailing_address_zip' IS NOT NULL
-    AND r.raw_data->>'mailing_address_zip' != ''
-    AND LEFT(r.raw_data->>'mailing_address_zip', 5) != p.zip
-  )
-  OR
-  -- zip data missing: fall back to city name check
-  (
-    (r.raw_data->>'mailing_address_zip' IS NULL OR r.raw_data->>'mailing_address_zip' = '')
-    AND UPPER(r.raw_data->>'mailing_address_city') NOT IN (
-      'PATCHOGUE','EAST PATCHOGUE','NORTH PATCHOGUE',
-      'MEDFORD','SHIRLEY','MASTIC','MASTIC BEACH',
-      'CENTEREACH','SELDEN','FARMINGVILLE','CORAM',
-      'BELLPORT','PORT JEFFERSON','PORT JEFFERSON STATION',
-      'MOUNT SINAI','MILLER PLACE','ROCKY POINT','RIDGE',
-      'MIDDLE ISLAND','YAPHANK','HOLTSVILLE',
-      'SHOREHAM','PORT JEFF STA','MT SINAI',
-      'PORT JEFFERSON STATI','PORT JEFF STATION','TERRYVILLE',
-      'LAKE GROVE','STONY BROOK','SETAUKET','EAST SETAUKET'
+SELECT * FROM (
+  SELECT DISTINCT ON (p.address)
+         p.address, p.city, p.zip, p.owner_name,
+         p.assessed_value, p.full_market_value,
+         TRIM(
+           COALESCE(r.raw_data->>'mailing_address_number', '') || ' ' ||
+           COALESCE(r.raw_data->>'mailing_address_street', '') || ' ' ||
+           COALESCE(r.raw_data->>'mailing_address_suff', '')
+         ) || ', ' ||
+         COALESCE(r.raw_data->>'mailing_address_city', '') || ', ' ||
+         COALESCE(r.raw_data->>'mailing_address_state', '') || ' ' ||
+         COALESCE(LEFT(r.raw_data->>'mailing_address_zip', 5), '')
+         AS mail_address
+  FROM properties p
+  JOIN raw_records r ON r.raw_data->>'print_key_code' = p.parcel_id
+  WHERE (
+    -- out-of-state owner
+    r.raw_data->>'mailing_address_state' != 'NY'
+    OR
+    -- in-state but mailing zip differs from property zip (preferred check)
+    (
+      r.raw_data->>'mailing_address_zip' IS NOT NULL
+      AND r.raw_data->>'mailing_address_zip' != ''
+      AND LEFT(r.raw_data->>'mailing_address_zip', 5) != p.zip
+    )
+    OR
+    -- zip data missing: fall back to city name check
+    (
+      (r.raw_data->>'mailing_address_zip' IS NULL OR r.raw_data->>'mailing_address_zip' = '')
+      AND UPPER(r.raw_data->>'mailing_address_city') NOT IN (
+        'PATCHOGUE','EAST PATCHOGUE','NORTH PATCHOGUE',
+        'MEDFORD','SHIRLEY','MASTIC','MASTIC BEACH',
+        'CENTEREACH','SELDEN','FARMINGVILLE','CORAM',
+        'BELLPORT','PORT JEFFERSON','PORT JEFFERSON STATION',
+        'MOUNT SINAI','MILLER PLACE','ROCKY POINT','RIDGE',
+        'MIDDLE ISLAND','YAPHANK','HOLTSVILLE',
+        'SHOREHAM','PORT JEFF STA','MT SINAI',
+        'PORT JEFFERSON STATI','PORT JEFF STATION','TERRYVILLE',
+        'LAKE GROVE','STONY BROOK','SETAUKET','EAST SETAUKET'
+      )
     )
   )
-)
-ORDER BY p.zip, p.address
+  ORDER BY p.address
+) sub
+ORDER BY full_market_value DESC NULLS LAST
 LIMIT 100
 "
 ```
