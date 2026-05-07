@@ -75,7 +75,7 @@ SELECT * FROM (
   )
   ORDER BY p.address
 ) sub
-ORDER BY full_market_value DESC NULLS LAST
+ORDER BY property_class, full_market_value DESC NULLS LAST
 LIMIT 100
 "
 ```
